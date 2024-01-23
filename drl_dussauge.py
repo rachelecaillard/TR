@@ -5,6 +5,7 @@ import math
 import time
 import numpy as np
 import gmsh
+import matplotlib as plt
 
 ################################
 ### Environment for Wind Turbine 
@@ -15,27 +16,23 @@ class drl_dussauge():
 
         # Fill structure
         self.name     = 'drl_dussauge'
-        self.act_size = 4
+        #self.act_size = 4
+        self.act_size = 8
         self.obs_size = self.act_size
         self.obs      = np.zeros(self.obs_size)
         # variables: camber and 3 thickness
-        self.x_min    =  np.array([0.,0.02,0.02,0.02])  # np.array([0.1,0.02,0.02,0.02])
-        self.x_max    =  np.array([0.2,0.08,0.08,0.08])  # np.array([0.65,0.08,0.08,0.08])
-        self.x_0      =  0.5*(self.x_min+self.x_max) # 0.5*(self.x_min+self.x_max)
+        #self.x_min    =  np.array([0.,0.02,0.02,0.02])  # np.array([0.1,0.02,0.02,0.02])
+        #self.x_max    =  np.array([0.2,0.08,0.08,0.08])  # np.array([0.65,0.08,0.08,0.08])
+        #self.x_0      =  0.5*(self.x_min+self.x_max) # 0.5*(self.x_min+self.x_max)
+        self.x_min    =  np.array([0.02, 0.05, 0.05, 0.05, 0.05, -0.15, -0.15, -0.15]) 
+        self.x_max    =  np.array([0.08, 0.2, 0.2, 0.2, 0.2, 0.02, 0.02, 0.02]) 
+        self.x_0 = np.array( [0.03, 0.08, 0.125, 0.12, 0.08, -0.08, -0.1,-0.08]) # l'aile symétrique
         self.path     = path
         self.finesse_moy= 0
         self.finesse_max= 0
 
-        self.n_points = 8
-        self.M = 0.3
-        self.T = 0.12
-        self.P = 0.4
-        self.Xi = -1 #leading edge point x
-        self.Xf = 0.0 #trailing edge point x
-        self.angle = -7 #inclinaison
-        self.x_corde = np.arange(self.Xi, self.Xf+0.025, 0.025)
-        self.y_corde = np.zeros(len(self.x_corde))
-
+        self.angle = 0 #inclinaison              ########### Super important, regarder comment le prendre en compte
+        
         # Set episode number
         self.episode  = 0
 
@@ -56,77 +53,13 @@ class drl_dussauge():
 
 
 
-    def shape_generation(self, control_parameters):
-        # This fonction generate the shape 
-        # Generation of NACA profile
-        self.M = control_parameters[0]
-        y_camber = self.y_c(self.x_corde)
-        longueur_part_camber = np.zeros(0)
-        cumule_longueur_part_camber = np.zeros(0)
-        for i in range(len(self.x_corde)-1):
-            longueur_part_camber = np.append(longueur_part_camber,((y_camber[i+1] - y_camber[i])**2+(self.x_corde[i+1] - self.x_corde[i])**2)**0.5)
-            cumule_longueur_part_camber = np.append(cumule_longueur_part_camber,np.sum(longueur_part_camber[:-1]) + longueur_part_camber[i])
+    
 
-        longueur_camber = np.sum(longueur_part_camber)
-        part_longueur = longueur_camber/(self.n_points/2)
+    def shape_generation_dussauge(self, control_parameters):
 
-        new_points = np.zeros((int(self.n_points/2 + 1),2))
-        new_points[0,0] = self.x_corde[0]
-        new_points[-1,0] = self.x_corde[-1]
-        for i in range((int(self.n_points/2 + 1)-2)):
-            dist_ref = (i+1)*part_longueur
-            ref = abs(cumule_longueur_part_camber[0] - dist_ref)
-            for j in range(len(cumule_longueur_part_camber)-1):
-                new_points[i+1,0] = self.x_corde[j+1]
-                new_points[i+1,1] = y_camber[j+1]
-                dist = cumule_longueur_part_camber[j+1]
-                if (abs(dist - dist_ref) < ref):
-                    new_points[i+1,0] = self.x_corde[j+1]
-                    new_points[i+1,1] = y_camber[j+1]
-                    ref = abs(dist - dist_ref)
-                else:
-                    break
-        new_x_corde = new_points[:,0]
-        new_y_corde = np.zeros(len(new_x_corde))
-        new_y_camber = self.y_c(new_x_corde)
-        gradient = self.dy_dx(new_x_corde)
-        thickness = self.y_t(new_x_corde)
-        courbure = self.teta(gradient)
+        control_points = self.reconstruct_control_points(control_parameters)
+        curve = self.airfoil(control_points,16)
 
-        for i in range(3):
-            thickness[i+1] = control_parameters[i+1]
-        x_upper = self.x_u(new_x_corde,new_y_camber, thickness,courbure)
-        x_lower = self.x_l(new_x_corde,new_y_camber, thickness,courbure)
-        y_upper = self.y_u(new_x_corde,new_y_camber, thickness,courbure)
-        y_lower = self.y_l(new_x_corde,new_y_camber, thickness,courbure)
-        n_control_pts = int(2*len(new_x_corde)-2)
-        horz_control_pts = np.zeros((n_control_pts,2))
-        for i in range(len(new_x_corde)):
-            if (i==0):
-                horz_control_pts[i,0] = new_x_corde[i]
-                horz_control_pts[i,1] = new_y_corde[i]
-            elif (i==(len(new_x_corde)-1)):
-                horz_control_pts[i,0] = new_x_corde[i]
-                horz_control_pts[i,1] = new_y_corde[i]
-            else:
-                horz_control_pts[i,0] = x_upper[i]
-                horz_control_pts[i,1] = y_upper[i]
-                horz_control_pts[-i,0] = x_lower[i]
-                horz_control_pts[-i,1] = y_lower[i]
-
-        control_pts = np.zeros((n_control_pts,2))
-        unordered = np.zeros((n_control_pts,2))
-        for i in range(len(horz_control_pts)):
-            unordered[i,0] = horz_control_pts[i,0]*math.cos(math.radians(self.angle)) - horz_control_pts[i,1]*math.sin(math.radians(self.angle))
-            unordered[i,1] = horz_control_pts[i,0]*math.sin(math.radians(self.angle)) + horz_control_pts[i,1]*math.cos(math.radians(self.angle))
-
-        control_pts[0] = unordered[int(n_control_pts/2)]
-        control_pts[int(n_control_pts/2)] = unordered[0]
-        for i in range(int(n_control_pts/2 - 1)):
-            control_pts[i+1] = unordered[int(n_control_pts/2 - i - 1)]
-            control_pts[i+(int(n_control_pts/2)+1)] = unordered[-i-1]
-
-        
         mesh_size = 0.005 # Mesh size
         try:
             # Init GMSH
@@ -139,8 +72,8 @@ class drl_dussauge():
             model.add("shape")        
             
             shapepoints = []
-            for j in range(len(control_pts)):
-                shapepoints.append(model.geo.addPoint(control_pts[j,0], control_pts[j,1], 0.0,mesh_size))
+            for j in range(len(curve)):
+                shapepoints.append(model.geo.addPoint(curve[j][0], curve[j][1], 0.0,mesh_size))
             shapepoints.append(shapepoints[0])
 
             
@@ -179,8 +112,6 @@ class drl_dussauge():
 
 
 
-
-
     def compute_reward(self, control_parameters):
         # Compute reward
         with open('./cfd/Resultats/Efforts.txt', 'r') as f:
@@ -207,14 +138,21 @@ class drl_dussauge():
 
         
         # On écrit dans le gros fichier
-        # Write (d, L, R, e, Reward, Cp) in a txt
         print(os.path)
         if not os.path.isfile('Values.txt'):
             f = open('Values.txt','w')
-            f.write('Index'+'\t'+'Camber'+'\t'+'T1'+'\t'+'T2'+'\t'+'T3'+'\t'+'finesse_moy'+'\t'+'finesse_max'+'\t'+'Reward'+'\n')
+            f.write(
+                'Index'+'\t'+'edge'+'\t'+'1'+'\t'+'2'+'\t'+'3'+'\t'+'4'+'\t'+'5'+'\t'+'6'+
+                '\t'+'7'+'\t'+'finesse_moy'+'\t'+'finesse_max'+'\t'+'Reward'+'\n'
+                )
         else:
             f = open('Values.txt','a')
-        f.write(str(self.episode)+'\t'+str(self.M)+'\t'+str(control_parameters[1])+'\t'+str(control_parameters[2])+'\t'+str(control_parameters[3])+'\t'+str(self.finesse_moy)+'\t'+str(self.finesse_max)+'\t'+str(self.reward)+'\n')
+        f.write(
+            str(self.episode)+'\t'+str(control_parameters[0])+'\t'+str(control_parameters[1])+'\t'
+            +str(control_parameters[2])+'\t'+str(control_parameters[3])+'\t'+str(control_parameters[4])+
+            '\t'+str(control_parameters[5])+'\t'+str(control_parameters[6])+'\t'+str(control_parameters[7])+
+            '\t'+str(self.finesse_moy)+'\t'+str(self.finesse_max)+'\t'+str(self.reward)+'\n'
+            )
         f.close()
 		
         self.episode      += 1 #new
@@ -244,7 +182,7 @@ class drl_dussauge():
         control_parameters = np.array(x)
 
         # create the shape 
-        self.shape_generation(control_parameters)
+        self.shape_generation_dussauge(control_parameters)
 
         # convert to .t
         os.system('cd '+self.output_path+'cfd ; python3 gmsh2mtc.py')
@@ -302,59 +240,82 @@ class drl_dussauge():
 
         command = "sed -i '/"+string+"/c\\"+line+"' "+target
         os.system(command)
+
+
+    ############ Bezier generation function ##############################################
+
+
+    def quadraticBezier(self,t,points):
+        B_x=(1-t)*((1-t)*points[0][0]+t*points[1][0])+t*((1-t)*points[1][0]+t*points[2][0])
+        B_y=(1-t)*((1-t)*points[0][1]+t*points[1][1])+t*((1-t)*points[1][1]+t*points[2][1])
+        return B_x,B_y
+
+    def airfoil_plot(self, points, curve, title):
+        xPts,yPts=list(zip(*points))
+        xPts2,yPts2=list(zip(*curve))
+        plt.plot(xPts2,yPts2,'b')
+        plt.plot(xPts,yPts,color='#666666')
+        plt.plot(xPts,yPts,'o',mfc='none',mec='r',markersize=8)
+        plt.title(title)
+        plt.xlim(-0.05,1.05)
+        plt.grid()
+        plt.ylim(-0.55,0.55)
+        plt.show()
     
+    def airfoil(self,ctlPts,numPts):
+        curve=[]
+        t=np.array([i*1/numPts for i in range(0,numPts)])
+        
+        # calculate first Bezier curve
+        midX = (ctlPts[1][0]+ctlPts[2][0])/2
+        midY = (ctlPts[1][1]+ctlPts[2][1])/2
+        B_x,B_y = self.quadraticBezier(t,[ctlPts[0],ctlPts[1],[midX,midY]])
+        curve = curve+list(zip(B_x,B_y))
+
+        # calculate middle Bezier Curves
+        for i in range(1,len(ctlPts)-3):
+            p0 = ctlPts[i]
+            p1 = ctlPts[i+1]
+            p2 = ctlPts[i+2]
+            midX_1=(ctlPts[i][0]+ctlPts[i+1][0])/2
+            midY_1=(ctlPts[i][1]+ctlPts[i+1][1])/2
+            midX_2=(ctlPts[i+1][0]+ctlPts[i+2][0])/2
+            midY_2=(ctlPts[i+1][1]+ctlPts[i+2][1])/2
+
+            B_x,B_y = self.quadraticBezier(t,[[midX_1,midY_1],ctlPts[i+1],[midX_2,midY_2]])
+            curve=curve+list(zip(B_x,B_y))                     
     
-    ### NACA Generation functions
-    def y_c(self, x):
-        y_camber = np.zeros(0)
-        for i in range(len(x)):
-            if (x[i]<(self.Xi + self.P)):
-                y_camber = np.append(y_camber,(self.M/(self.P)**2)*(2*self.P*(x[i]-self.Xi) - (x[i]-self.Xi)**2))
-            else:
-                y_camber = np.append(y_camber,(self.M/(1 - self.P)**2)*(1 - 2*self.P + 2*self.P*(x[i]-self.Xi) - (x[i]-self.Xi)**2))            
-        return y_camber
+        # calculate last Bezier curve
+        midX=(ctlPts[-3][0]+ctlPts[-2][0])/2
+        midY=(ctlPts[-3][1]+ctlPts[-2][1])/2
 
-    def dy_dx(self, x):
-        derive = np.zeros(0)
-        for i in range(len(x)):
-            if (x[i]<(self.Xi + self.P)):
-                derive = np.append(derive,(self.M/(self.P)**2)*(2*self.P - 2*(x[i]-self.Xi)))
-            else:
-                derive = np.append(derive,(self.M/(1 - self.P)**2)*(2*self.P - 2*(x[i]-self.Xi)))            
-        return derive
+        B_x,B_y= self.quadraticBezier(t,[[midX,midY],ctlPts[-2],ctlPts[-1]])
+        curve=curve+list(zip(B_x,B_y))
+        curve.append(ctlPts[-1])
+        return curve
 
-    def y_t(self, x):
-        mi_thickness = np.zeros(0)
-        for i in range(len(x)):
-            mi_thickness = np.append(mi_thickness,(self.T/0.2)*(0.2969*(x[i]-self.Xi)**0.5 - 0.126*(x[i]-self.Xi) - 0.3516*(x[i]-self.Xi)**2 + 0.2843*(x[i]-self.Xi)**3 - 0.1036*(x[i]-self.Xi)**4))#0.1015
-        return mi_thickness
+    def reconstruct_control_points(self,control_parameter):
+        # Les points autour desquels on bouge
+        base_points =[[1,0.001],              # trailing edge (top)
+            [0.76,None],
+            [0.52,None],
+            [0.25,None],
+            [0.1,None],
+            [0,None],               # leading edge (top)
+            [0,None],              # leading edge (bottom)
+            [0.15,None],
+            [0.37,None],
+            [0.69,None],
+            [1,-0.001]] 
 
-    def teta(self, x):
-        angle = np.zeros(0)
-        for i in range(len(x)):
-            angle = np.append(angle,math.atan(math.radians(x[i])))
-        return angle
 
-    def x_u(self, x,y,thick,t):
-        x_cood_u = np.zeros(0)
-        for i in range(len(x)):
-            x_cood_u = np.append(x_cood_u,x[i] - thick[i]*math.sin(math.radians(t[i])))
-        return x_cood_u
+        control_points = base_points[::] # les nouveaux control points on va construire avec le control_parameter 
+        control_points[5][1] = control_parameter[0]
+        control_points[6][1] = -control_parameter[0]
+        for k in range(4):
+            control_points[k+1][1] = control_parameter[1+k]
 
-    def y_u(self, x,y,thick,t):
-        y_cood_u = np.zeros(0)
-        for i in range(len(x)):
-            y_cood_u = np.append(y_cood_u,y[i] + thick[i]*math.cos(math.radians(t[i])))
-        return y_cood_u
+        for k in range(3):
+            control_points[k+7][1] = control_parameter[5+k]
+        return control_points
 
-    def x_l(self, x,y,thick,t):
-        x_cood_l = np.zeros(0)
-        for i in range(len(x)):
-            x_cood_l = np.append(x_cood_l,x[i] + thick[i]*math.sin(math.radians(t[i])))
-        return x_cood_l
-
-    def y_l(self, x,y,thick,t):
-        y_cood_l = np.zeros(0)
-        for i in range(len(x)):
-            y_cood_l = np.append(y_cood_l,y[i] - thick[i]*math.cos(math.radians(t[i])))
-        return y_cood_l
