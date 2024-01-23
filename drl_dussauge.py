@@ -54,27 +54,10 @@ class drl_dussauge():
         except : 
             print("La simulation ne s'est pas lancée ") ############ A enlever !!! Juste pour debugger 
 
-    ### CFD resolution
-    def cfd_solve(self, x, ep):
 
-        # Create folders and copy cfd (please kill me)
-        # On met les résultats là dedans 
-        self.output_path = self.path+'/'+str(ep)+'/'  # Pour chaque épisode
-        self.vtu_path    = self.output_path+'vtu/'
-        self.effort   = self.output_path+'effort/'
-        self.msh_path   = self.output_path+'msh/'
-        self.t_mesh_path   = self.output_path+'t_mesh/'
-        
-        os.makedirs(self.effort)
-        os.makedirs(self.vtu_path)
-        os.makedirs(self.msh_path)
-        os.makedirs(self.t_mesh_path)
-        
-        os.system('cp -r cfd ' + self.output_path + '.')   # A quoi sert cette ligne ???
-        
-        # Convert action to coordinates 		
-        control_parameters = np.array(x)
-        
+
+    def shape_generation(self, control_parameters):
+        # This fonction generate the shape 
         # Generation of NACA profile
         self.M = control_parameters[0]
         y_camber = self.y_c(self.x_corde)
@@ -193,16 +176,12 @@ class drl_dussauge():
             print('error: ', e)
             pass
 
-        # convert to .t
-        os.system('cd '+self.output_path+'cfd ; python3 gmsh2mtc.py')
-        os.system('cd '+self.output_path+'cfd ; cp -r airfoil.msh ../msh')
-        os.system('cd '+self.output_path+'cfd ; module load cimlibxx/master')
-        os.system('cd '+self.output_path+'cfd ; echo 0 | mtcexe airfoil.t')
-        os.system('cd '+self.output_path+'cfd ; cp -r airfoil.t ../t_mesh')
-        
-        self.solve_problem_cimlib()
 
-  
+
+
+
+
+    def compute_reward(self, control_parameters):
         # Compute reward
         with open('./cfd/Resultats/Efforts.txt', 'r') as f:
             next(f) # Skip header
@@ -239,7 +218,47 @@ class drl_dussauge():
         f.close()
 		
         self.episode      += 1 #new
+
+
+
+
+    ### CFD resolution
+    def cfd_solve(self, x, ep):
+
+        # Create folders and copy cfd (please kill me)
+        # On met les résultats là dedans 
+        self.output_path = self.path+'/'+str(ep)+'/'  # Pour chaque épisode
+        self.vtu_path    = self.output_path+'vtu/'
+        self.effort   = self.output_path+'effort/'
+        self.msh_path   = self.output_path+'msh/'
+        self.t_mesh_path   = self.output_path+'t_mesh/'
         
+        os.makedirs(self.effort)
+        os.makedirs(self.vtu_path)
+        os.makedirs(self.msh_path)
+        os.makedirs(self.t_mesh_path)
+        
+        os.system('cp -r cfd ' + self.output_path + '.')   # A quoi sert cette ligne ???
+        
+        # Convert action to coordinates 		
+        control_parameters = np.array(x)
+
+        # create the shape 
+        self.shape_generation(control_parameters)
+
+        # convert to .t
+        os.system('cd '+self.output_path+'cfd ; python3 gmsh2mtc.py')
+        os.system('cd '+self.output_path+'cfd ; cp -r airfoil.msh ../msh')
+        os.system('cd '+self.output_path+'cfd ; module load cimlibxx/master')
+        os.system('cd '+self.output_path+'cfd ; echo 0 | mtcexe airfoil.t')
+        os.system('cd '+self.output_path+'cfd ; cp -r airfoil.t ../t_mesh')
+        
+        # solving the problem
+        self.solve_problem_cimlib()
+
+        # Compute the reward 
+        self.compute_reward(control_parameters)
+
         return self.reward
 
     ### Take one step
