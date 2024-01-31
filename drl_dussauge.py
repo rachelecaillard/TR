@@ -56,9 +56,9 @@ class drl_dussauge():
         os.system('mv '+self.output_path+'cfd/Resultats/Variables.txt '+ self.data + '.')
 
         os.system('rm -r '+self.output_path+'cfd')
-        os.system('cp -r '+self.vtu_path+'bulles_00500.vtu ./video/')                                  
-        os.system('mv ./video/bulles_00500.vtu '+'./video/video_'+str(self.episode)+'.vtu')
-        
+      #  os.system('cp -r '+self.vtu_path+'bulles_00500.vtu ./video/')                                  
+     #   os.system('mv ./video/bulles_00500.vtu '+'./video/video_'+str(self.episode)+'.vtu')
+     #   
 
     def shape_generation_deflector(self, x, mesh_path, t_path):
         """ Generate shape """
@@ -70,8 +70,8 @@ class drl_dussauge():
             simple_deflector = False
 
             gmsh.initialize()
-            """gmsh.model.remove()
-            gmsh.model.add("new_model")"""
+            gmsh.model.remove()
+            gmsh.model.add("new_model")
 
             x = R + e + H/np.abs(np.tan(np.radians(alpha)))   
             points = cd.get_points(x, H, np.radians(alpha), e, R, L)
@@ -169,7 +169,7 @@ class drl_dussauge():
 
 
         ### create the shape 
-        self.shape_generation_deflector(x, self.output_path + 'cfd/deflector.msh', self.output_path + 'cfd/deflector.t')                        
+        self.shape_generation_deflector(x, 'cfd/deflector.msh', 'cfd/deflector.t')                        
 
         """ ### convert .mesh to .t
         os.system('cd '+self.output_path+'cfd ; python3 gmsh2mtc.py')
